@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meu Site Dockerizado</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 Meu Site com Docker + Render</h1>
+    <p>Este site está rodando dentro de um container Docker!</p>
+    <button id="botao">Clique aqui</button>
+    <p id="mensagem"></p>
+  </div>
+
+  <script>
+    const botao = document.getElementById("botao");
+    const mensagem = document.getElementById("mensagem");
+    botao.addEventListener("click", () => {
+      mensagem.textContent = "Docker + Render funcionando perfeitamente! 🎉";
+    });
+  </script>
+</body>
+</html>
