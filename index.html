@@ -1,25 +1,217 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meu Site Dockerizado</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tirar foto automática</title>
+  <style>
+    :root{
+      --bg: #0f172a;
+      --card: #0b1220;
+      --accent: #06b6d4;
+      --text: #e6eef6;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:linear-gradient(180deg,var(--bg),#071029);
+      font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+      color:var(--text);
+      padding:20px;
+    }
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius:12px;
+      padding:18px;
+      width:100%;
+      max-width:420px;
+      box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+    h1{font-size:18px;margin:0 0 10px}
+    p{margin:0 0 14px;font-size:14px; color: #cfeaf3}
+    .preview{
+      width:100%;
+      aspect-ratio:3/4;
+      background:#031221;
+      border-radius:8px;
+      overflow:hidden;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      margin-bottom:12px;
+    }
+    .preview img{width:100%; height:100%; object-fit:cover; display:block}
+    .controls{display:flex; gap:8px; justify-content:space-between; align-items:center}
+    button{
+      background:var(--accent);
+      color:#012;
+      border:0;
+      padding:8px 12px;
+      border-radius:8px;
+      cursor:pointer;
+      font-weight:600;
+    }
+    button.secondary{
+      background:transparent;
+      color:var(--text);
+      border:1px solid rgba(255,255,255,0.06);
+    }
+    .small{font-size:12px;color:#9fcbd2;margin-top:10px}
+    /* elementos escondidos */
+    video, canvas { display:none; }
+    .error{color:#ffb4b4;background:rgba(255,0,0,0.04); padding:8px;border-radius:6px;margin-top:8px}
+  </style>
 </head>
 <body>
-  <div class="container">
-    <h1>🚀 Meu Site com Docker + Render</h1>
-    <p>Este site está rodando dentro de um container Docker!</p>
-    <button id="botao">Clique aqui</button>
-    <p id="mensagem"></p>
+  <div class="card">
+    <h1>Tirar foto automática</h1>
+    <p>A câmera será solicitada e uma foto será tirada automaticamente assim que a página carregar.</p>
+
+    <div class="preview" id="preview">
+      <span id="placeholder">Aguardando câmera...</span>
+      <!-- imagem capturada aparecerá aqui -->
+    </div>
+
+    <div class="controls">
+      <div style="display:flex;gap:8px">
+        <button id="retake" class="secondary" disabled>Refazer</button>
+        <a id="downloadLink" style="display:inline-block;text-decoration:none;" download>
+          <button id="download" disabled>Download</button>
+        </a>
+      </div>
+      <div id="status" style="font-size:13px;color:#9fcbd2">Pronto</div>
+    </div>
+
+    <div class="small">Obs: permita o uso da câmera quando solicitado. Funciona em HTTPS ou localhost.</div>
+    <div id="error" class="error" style="display:none"></div>
+
+    <!-- elementos ocultos usados para captura -->
+    <video id="video" playsinline></video>
+    <canvas id="canvas"></canvas>
   </div>
 
-  <script>
-    const botao = document.getElementById("botao");
-    const mensagem = document.getElementById("mensagem");
-    botao.addEventListener("click", () => {
-      mensagem.textContent = "Docker + Render funcionando perfeitamente! 🎉";
-    });
-  </script>
+<script>
+(async function(){
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const preview = document.getElementById('preview');
+  const placeholder = document.getElementById('placeholder');
+  const errorBox = document.getElementById('error');
+  const status = document.getElementById('status');
+  const retakeBtn = document.getElementById('retake');
+  const downloadBtn = document.getElementById('download');
+  const downloadLink = document.getElementById('downloadLink');
+
+  let stream = null;
+  let lastBlob = null;
+
+  function showError(msg){
+    errorBox.style.display = 'block';
+    errorBox.textContent = msg;
+    status.textContent = 'Erro';
+  }
+
+  function clearError(){
+    errorBox.style.display = 'none';
+    errorBox.textContent = '';
+    status.textContent = 'Pronto';
+  }
+
+  function stopStream(){
+    if (!stream) return;
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+
+  function showImageBlob(blob){
+    const url = URL.createObjectURL(blob);
+    preview.innerHTML = '';
+    const img = document.createElement('img');
+    img.src = url;
+    img.onload = () => URL.revokeObjectURL(url);
+    preview.appendChild(img);
+
+    // habilita download
+    const ts = new Date().toISOString().replace(/[:.]/g,'-');
+    downloadLink.href = url;
+    downloadLink.download = `foto-${ts}.png`;
+    downloadBtn.disabled = false;
+    retakeBtn.disabled = false;
+    lastBlob = blob;
+    status.textContent = 'Foto capturada';
+  }
+
+  async function startCameraAndCapture(){
+    clearError();
+    try{
+      status.textContent = 'Solicitando câmera...';
+      // pede câmera frontal preferencialmente (user). Ajuste facingMode se quiser traseira 'environment'
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+
+      status.textContent = 'Câmera ativa — preparando captura...';
+
+      // espera metadata e dá pequeno atraso para foco/auto-exposure
+      await new Promise(r => {
+        if (video.readyState >= 2) return r();
+        video.addEventListener('loadeddata', r, { once: true });
+      });
+      // pequeno delay para estabilidade (ajuste se necessário)
+      await new Promise(r => setTimeout(r, 400));
+
+      // dimensiona canvas conforme vídeo (mantendo proporção)
+      const vw = video.videoWidth || 1280;
+      const vh = video.videoHeight || 720;
+      canvas.width = vw;
+      canvas.height = vh;
+
+      const ctx = canvas.getContext('2d');
+      // opcional: espelhar para selfie (mais natural) - descomente se quiser
+      ctx.save();
+      // espelhar horizontalmente para 'user' camera:
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      // pega blob da imagem
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+      if (!blob) throw new Error('Falha ao gerar imagem.');
+      showImageBlob(blob);
+    } catch(err){
+      console.error(err);
+      showError('Não foi possível acessar a câmera: ' + (err.message || err));
+    } finally {
+      // paramos a câmera para liberar o dispositivo
+      stopStream();
+    }
+  }
+
+  // botão refazer captura
+  retakeBtn.addEventListener('click', async () => {
+    retakeBtn.disabled = true;
+    downloadBtn.disabled = true;
+    preview.innerHTML = '<span id="placeholder">Aguardando câmera...</span>';
+    await startCameraAndCapture();
+  });
+
+  // automaticamente inicia no carregamento
+  // se o navegador bloquear getUserMedia por não haver interação, o erro será mostrado
+  await startCameraAndCapture();
+
+  // opcional: se quiser forçar download automático após captura, descomente:
+  // if (lastBlob) { downloadLink.click(); }
+})();
+</script>
 </body>
 </html>
